@@ -89,43 +89,53 @@ def handle_login(message):
         bot.reply_to(message, f"❌ Error during login: {str(e)}")
 
 # /me command – Show user's currently playing song
-@bot.message_handler(commands=["me"])
-def handle_me(message):
-    user_id = str(message.from_user.id)
-
-    if user_id not in sessions:
-        bot.reply_to(message, "❌ Please login first using /login <email>")
-        return
-
-    sp_dc = sessions[user_id]["sp_dc"]
-    headers = {
-        "Cookie": f"sp_dc={sp_dc}"
-    }
-
+@bot.message_handler(commands=["login"])
+def handle_login(message):
     try:
-        response = requests.get(
-            "https://guc3-spclient.spotify.com/now-playing-view/v1/view",
-            headers=headers
-        )
-
-        if response.status_code != 200:
-            bot.reply_to(message, f"⚠️ Failed to fetch now playing info.\nStatus: {response.status_code}")
+        args = message.text.strip().split(" ")
+        if len(args) != 2:
+            bot.reply_to(message, "❌ Format:\n/login your@email.com")
             return
 
-        data = response.json()
-        if not data.get("track"):
-            bot.reply_to(message, "ℹ️ You're not listening to anything right now.")
-            return
+        email = args[1]
+        user_id = str(message.from_user.id)
 
-        track = data["track"]
-        artist = track["artist"]["name"]
-        name = track["name"]
-        url = track.get("uri", "").replace("spotify:track:", "https://open.spotify.com/track/")
+        bot.reply_to(message, "🔐 Opening Spotify... please wait.")
 
-        bot.reply_to(message, f"🎧 You're listening to:\n{name} — {artist}\n{url}")
+        # Headless browser
+        options = uc.ChromeOptions()
+        options.add_argument("--headless")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+
+        driver = uc.Chrome(options=options)
+        driver.get("https://accounts.spotify.com/en/login")
+
+        wait = WebDriverWait(driver, 15)
+
+        # Step 1: email
+        email_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[placeholder="Email or username"]')))
+        email_input.send_keys(email)
+
+        # Step 2: login button
+        login_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="login-button"]')))
+        login_btn.click()
+
+        # Step 3: check for "Check your email" screen
+        wait.until(lambda d: "check your email" in d.page_source.lower())
+
+        # Save state
+        otp_state[user_id] = {
+            "email": email,
+            "driver": driver,
+            "awaiting_otp": True,
+            "timestamp": time.time()
+        }
+
+        bot.reply_to(message, "📩 OTP sent to your email.\nSend the OTP directly without any command.")
 
     except Exception as e:
-        bot.reply_to(message, f"❌ Error: {str(e)}")
+        bot.reply_to(message, f"❌ Error during login: {str(e)}")
 
 # /friend command – Show friends' current activity
 @bot.message_handler(commands=["friend"])
