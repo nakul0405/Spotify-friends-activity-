@@ -32,20 +32,28 @@ sessions = load_sessions()
 def handle_start(message):
     bot.reply_to(message, "👋 Welcome to Spotify Tracker Bot!\n\nUse:\n/login your@email.com yourpassword\nThen:\n/me → What you're playing\n/friend → What your friends are listening to")
 
-# /login <email> <password> command
+import time
+from selenium.webdriver.common.by import By
+import undetected_chromedriver as uc
+
+# Temporary memory for OTP stage tracking
+otp_state = {}
+
+# /login <email>
 @bot.message_handler(commands=["login"])
 def handle_login(message):
     try:
         args = message.text.strip().split(" ")
-        if len(args) != 3:
-            bot.reply_to(message, "❌ Format:\n/login your@email.com yourpassword")
+        if len(args) != 2:
+            bot.reply_to(message, "❌ Format:\n/login your@email.com")
             return
 
         email = args[1]
-        password = args[2]
+        user_id = str(message.from_user.id)
 
-        bot.reply_to(message, "🔐 Logging in to Spotify... please wait 10-15 sec.")
+        bot.reply_to(message, "🔐 Opening Spotify... please wait.")
 
+        # Set up headless browser
         options = uc.ChromeOptions()
         options.add_argument("--headless")
         options.add_argument("--no-sandbox")
@@ -55,38 +63,26 @@ def handle_login(message):
         driver.get("https://accounts.spotify.com/en/login")
         time.sleep(3)
 
-        # Wait for username input
-        time.sleep(2)
+        # Fill in email field
         driver.find_element(By.NAME, "username").send_keys(email)
-        driver.find_element(By.NAME, "password").send_keys(password)
         driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
+        time.sleep(5)
 
+        # Wait for OTP field to appear
+        if "check your email" in driver.page_source.lower():
+            otp_state[user_id] = {
+                "email": email,
+                "driver": driver,
+                "awaiting_otp": True,
+                "timestamp": time.time()
+            }
+            bot.reply_to(message, "📩 OTP sent to your email.\n🔑 Please reply with the OTP code now (just the number).")
+        else:
+            driver.quit()
+            bot.reply_to(message, "❌ Unexpected response from Spotify. Try again later.")
 
-        cookies = driver.get_cookies()
-        sp_dc = None
-        for cookie in cookies:
-            if cookie['name'] == 'sp_dc':
-                sp_dc = cookie['value']
-                break
-
-        driver.quit()
-
-        if not sp_dc:
-            bot.reply_to(message, "❌ Login failed. Could not find sp_dc cookie.")
-            return
-
-        user_id = str(message.from_user.id)
-        sessions[user_id] = {
-            "email": email,
-            "password": password,
-            "sp_dc": sp_dc
-        }
-        save_sessions(sessions)
-
-        bot.reply_to(message, "✅ Login successful. Session saved!")
-    
     except Exception as e:
-        bot.reply_to(message, f"❌ Error: {str(e)}")
+        bot.reply_to(message, f"❌ Error during login: {str(e)}")
 
 # /me command – Show user's currently playing song
 @bot.message_handler(commands=["me"])
@@ -171,6 +167,58 @@ def handle_friend_activity(message):
 
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
+
+@bot.message_handler(func=lambda m: True)
+def handle_otp_input(message):
+    user_id = str(message.from_user.id)
+
+    # Agar user OTP stage me nahi hai to skip
+    if user_id not in otp_state or not otp_state[user_id]["awaiting_otp"]:
+        return
+
+    otp_code = message.text.strip()
+    if not otp_code.isdigit():
+        bot.reply_to(message, "❌ OTP should be numbers only.")
+        return
+
+    driver = otp_state[user_id]["driver"]
+
+    try:
+        # Fill OTP field and submit
+        driver.find_element(By.NAME, "code").send_keys(otp_code)
+        driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
+        time.sleep(6)
+
+        # Check if login succeeded
+        cookies = driver.get_cookies()
+        sp_dc = None
+        for cookie in cookies:
+            if cookie["name"] == "sp_dc":
+                sp_dc = cookie["value"]
+                break
+
+        if not sp_dc:
+            bot.reply_to(message, "❌ Invalid OTP or login failed.")
+            driver.quit()
+            del otp_state[user_id]
+            return
+
+        # Save session
+        sessions[user_id] = {
+            "email": otp_state[user_id]["email"],
+            "sp_dc": sp_dc
+        }
+        save_sessions(sessions)
+
+        bot.reply_to(message, "✅ Login successful! You can now use /me or /friend.")
+        driver.quit()
+        del otp_state[user_id]
+
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error while submitting OTP: {str(e)}")
+        driver.quit()
+        del otp_state[user_id]
+
       
 # Start polling the bot (runs forever)
 if __name__ == "__main__":
