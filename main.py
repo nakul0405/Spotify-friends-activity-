@@ -5,6 +5,8 @@ import time
 import requests
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 # Get bot token from Zeabur env vars
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -57,14 +59,20 @@ def handle_login(message):
 
         driver = uc.Chrome(options=options)
         driver.get("https://accounts.spotify.com/en/login")
+
+        wait = WebDriverWait(driver, 15)
+
+        # ✅ Enter email
+        email_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[placeholder="Email or username"]')))
+        email_input.send_keys(email)
+
+        # ✅ Click login button
+        login_button = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'button[data-testid="login-button"]')))
+        login_button.click()
+
+        # Wait for OTP prompt (optional)
         time.sleep(3)
 
-        # ✅ Fixed: new login selector (based on placeholder)
-        driver.find_element(By.CSS_SELECTOR, 'input[placeholder="Email or username"]').send_keys(email)
-        driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]').click()
-        time.sleep(5)
-
-        # Wait for OTP field
         if "check your email" in driver.page_source.lower():
             otp_state[user_id] = {
                 "email": email,
@@ -164,7 +172,7 @@ def handle_friend_activity(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
 
-# OTP input handler (text message)
+# OTP input handler
 @bot.message_handler(func=lambda m: True)
 def handle_otp_input(message):
     user_id = str(message.from_user.id)
