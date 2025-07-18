@@ -30,11 +30,8 @@ sessions = load_sessions()
 # /start command
 @bot.message_handler(commands=["start"])
 def handle_start(message):
-    bot.reply_to(message, "👋 Welcome to Spotify Tracker Bot!\n\nUse:\n/login your@email.com yourpassword\nThen:\n/me → What you're playing\n/friend → What your friends are listening to")
+    bot.reply_to(message, "👋 Welcome to Spotify Tracker Bot!\n\nUse:\n/login your@email.com Then:\n/me → What you're playing\n/friend → What your friends are listening to")
 
-import time
-from selenium.webdriver.common.by import By
-import undetected_chromedriver as uc
 
 # Temporary memory for OTP stage tracking
 otp_state = {}
