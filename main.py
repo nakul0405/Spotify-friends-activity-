@@ -55,10 +55,12 @@ def handle_login(message):
         driver.get("https://accounts.spotify.com/en/login")
         time.sleep(3)
 
-        driver.find_element(By.ID, "login-username").send_keys(email)
-        driver.find_element(By.ID, "login-password").send_keys(password)
-        driver.find_element(By.ID, "login-button").click()
-        time.sleep(8)
+        # Wait for username input
+        time.sleep(2)
+        driver.find_element(By.NAME, "username").send_keys(email)
+        driver.find_element(By.NAME, "password").send_keys(password)
+        driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
+
 
         cookies = driver.get_cookies()
         sp_dc = None
