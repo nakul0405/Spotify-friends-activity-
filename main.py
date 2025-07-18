@@ -73,6 +73,8 @@ def handle_login(message):
         # Wait for OTP prompt (optional)
         time.sleep(3)
 
+        print(driver.page_source)
+
         if "check your email" in driver.page_source.lower():
             otp_state[user_id] = {
                 "email": email,
