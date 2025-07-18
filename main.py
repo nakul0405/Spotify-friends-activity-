@@ -27,14 +27,13 @@ def save_sessions(data):
 # Load into memory
 sessions = load_sessions()
 
+# Temporary memory for OTP stage tracking
+otp_state = {}
+
 # /start command
 @bot.message_handler(commands=["start"])
 def handle_start(message):
-    bot.reply_to(message, "👋 Welcome to Spotify Tracker Bot!\n\nUse:\n/login your@email.com Then:\n/me → What you're playing\n/friend → What your friends are listening to")
-
-
-# Temporary memory for OTP stage tracking
-otp_state = {}
+    bot.reply_to(message, "👋 Welcome to Spotify Tracker Bot!\n\nUse:\n/login your@email.com\nThen reply with OTP\n\nCommands:\n/me → what you're playing\n/friend → friends' activity")
 
 # /login <email>
 @bot.message_handler(commands=["login"])
@@ -60,12 +59,11 @@ def handle_login(message):
         driver.get("https://accounts.spotify.com/en/login")
         time.sleep(3)
 
-        # Fill in email field
-        driver.find_element(By.NAME, "username").send_keys(email)
+        # ✅ Corrected input selector
+        driver.find_element(By.ID, "login-username").send_keys(email)
         driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
         time.sleep(5)
 
-        # Wait for OTP field to appear
         if "check your email" in driver.page_source.lower():
             otp_state[user_id] = {
                 "email": email,
@@ -81,25 +79,20 @@ def handle_login(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Error during login: {str(e)}")
 
-# /me command – Show user's currently playing song
+# /me command
 @bot.message_handler(commands=["me"])
 def handle_me(message):
     user_id = str(message.from_user.id)
 
     if user_id not in sessions:
-        bot.reply_to(message, "❌ Please login first using /login <email> <password>")
+        bot.reply_to(message, "❌ Please login first using /login <email>")
         return
 
     sp_dc = sessions[user_id]["sp_dc"]
-    headers = {
-        "Cookie": f"sp_dc={sp_dc}"
-    }
+    headers = { "Cookie": f"sp_dc={sp_dc}" }
 
     try:
-        response = requests.get(
-            "https://guc3-spclient.spotify.com/now-playing-view/v1/view",
-            headers=headers
-        )
+        response = requests.get("https://guc3-spclient.spotify.com/now-playing-view/v1/view", headers=headers)
 
         if response.status_code != 200:
             bot.reply_to(message, f"⚠️ Failed to fetch now playing info.\nStatus: {response.status_code}")
@@ -120,25 +113,20 @@ def handle_me(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
 
-# /friend command – Show friends' current activity
+# /friend command
 @bot.message_handler(commands=["friend"])
 def handle_friend_activity(message):
     user_id = str(message.from_user.id)
 
     if user_id not in sessions:
-        bot.reply_to(message, "❌ Please login first using /login <email> <password>")
+        bot.reply_to(message, "❌ Please login first using /login <email>")
         return
 
     sp_dc = sessions[user_id]["sp_dc"]
-    headers = {
-        "Cookie": f"sp_dc={sp_dc}"
-    }
+    headers = { "Cookie": f"sp_dc={sp_dc}" }
 
     try:
-        response = requests.get(
-            "https://guc3-spclient.spotify.com/presence-view/v1/buddylist",
-            headers=headers
-        )
+        response = requests.get("https://guc3-spclient.spotify.com/presence-view/v1/buddylist", headers=headers)
 
         if response.status_code != 200:
             bot.reply_to(message, f"⚠️ Failed to fetch friends activity.\nStatus: {response.status_code}")
@@ -153,7 +141,7 @@ def handle_friend_activity(message):
 
         reply = "🎧 Friends Listening Now:\n\n"
         for friend in friends:
-            if "track" in friend and friend["track"] is not None:
+            if "track" in friend and friend["track"]:
                 name = friend["user"]["name"]
                 song = friend["track"]["track"]["name"]
                 artist = friend["track"]["track"]["artist"]["name"]
@@ -165,11 +153,11 @@ def handle_friend_activity(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
 
+# OTP handler (auto-detects number reply)
 @bot.message_handler(func=lambda m: True)
 def handle_otp_input(message):
     user_id = str(message.from_user.id)
 
-    # Agar user OTP stage me nahi hai to skip
     if user_id not in otp_state or not otp_state[user_id]["awaiting_otp"]:
         return
 
@@ -181,18 +169,12 @@ def handle_otp_input(message):
     driver = otp_state[user_id]["driver"]
 
     try:
-        # Fill OTP field and submit
         driver.find_element(By.NAME, "code").send_keys(otp_code)
         driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
         time.sleep(6)
 
-        # Check if login succeeded
         cookies = driver.get_cookies()
-        sp_dc = None
-        for cookie in cookies:
-            if cookie["name"] == "sp_dc":
-                sp_dc = cookie["value"]
-                break
+        sp_dc = next((c["value"] for c in cookies if c["name"] == "sp_dc"), None)
 
         if not sp_dc:
             bot.reply_to(message, "❌ Invalid OTP or login failed.")
@@ -200,14 +182,13 @@ def handle_otp_input(message):
             del otp_state[user_id]
             return
 
-        # Save session
         sessions[user_id] = {
             "email": otp_state[user_id]["email"],
             "sp_dc": sp_dc
         }
         save_sessions(sessions)
 
-        bot.reply_to(message, "✅ Login successful! You can now use /me or /friend.")
+        bot.reply_to(message, "✅ Login successful! Use /me or /friend to track.")
         driver.quit()
         del otp_state[user_id]
 
@@ -216,8 +197,8 @@ def handle_otp_input(message):
         driver.quit()
         del otp_state[user_id]
 
-      
-# Start polling the bot (runs forever)
+# Start the bot
 if __name__ == "__main__":
     print("🤖 Bot is running...")
     bot.polling(none_stop=True, interval=0, timeout=20)
+
